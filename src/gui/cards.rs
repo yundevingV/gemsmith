@@ -1,10 +1,23 @@
 use super::draw::{self, GemChipOpts};
 use super::theme;
-use super::tokens::{self, border, bg};
+use super::tokens::{border, bg};
 use eframe::egui;
 use gemsmith::card::Card;
-use gemsmith::gem::Gem;
+use gemsmith::gem::{Gem, GemCounts};
 use gemsmith::locale::Locale;
+
+pub const MARKET_CARD_W: f32 = 104.0;
+pub const MARKET_CARD_H: f32 = 198.0;
+pub const MINI_CARD_W: f32 = 56.0;
+pub const MINI_CARD_H: f32 = 100.0;
+
+fn header_h(rect: egui::Rect) -> f32 {
+    (rect.height() * 0.152).clamp(16.0, 32.0)
+}
+
+fn footer_h(rect: egui::Rect) -> f32 {
+    (rect.height() * 0.205).clamp(20.0, 42.0)
+}
 
 pub struct CardPaintCtx<'a> {
     pub time: f32,
@@ -13,6 +26,8 @@ pub struct CardPaintCtx<'a> {
     pub affordable: f32,
     pub reserved_seal: bool,
     pub loc: &'a Locale,
+    pub cost: &'a GemCounts,
+    pub wallet: Option<(&'a GemCounts, &'a GemCounts)>,
 }
 
 pub fn card_hover_anim(ui: &egui::Ui, id: egui::Id, hovered: bool) -> f32 {
@@ -28,13 +43,21 @@ pub fn paint_development_card(
     ctx: &CardPaintCtx<'_>,
 ) {
     let lift = ctx.hover * 6.0;
-    let mut rect = rect.translate(egui::vec2(0.0, -lift));
+    let rect = rect.translate(egui::vec2(0.0, -lift));
     let pulse = (ctx.time * 2.2 + ctx.phase).sin() * 0.5 + 0.5;
 
     paint_drop_shadow(painter, rect, ctx.hover, ctx.affordable, pulse);
-    painter.rect_filled(rect, 10.0, bg::panel_emerald());
-    theme::velvet_overlay(painter, rect.shrink(4.0));
+    painter.rect_filled(rect, 10.0, bg::card_face());
+    let ribbon = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + 5.0));
+    painter.rect_filled(ribbon, 10.0, theme::tier_accent(tier));
+    painter.rect_filled(
+        rect.shrink(3.0),
+        8.0,
+        bg::card_face().lerp_to_gamma(bg::panel_emerald(), 0.15),
+    );
+    theme::velvet_overlay(painter, rect.shrink(5.0));
     paint_artwork_zone(painter, rect, tier, card, ctx);
+    paint_cost_footer(painter, rect, ctx);
     paint_brass_frame(painter, rect, ctx.hover, ctx.affordable, pulse);
     paint_header_zone(painter, rect, card, ctx);
     if ctx.reserved_seal {
@@ -102,26 +125,57 @@ fn paint_artwork_zone(
     card: &Card,
     ctx: &CardPaintCtx<'_>,
 ) {
+    let hh = header_h(rect);
+    let fh = footer_h(rect);
     let art = egui::Rect::from_min_max(
-        rect.min + egui::vec2(8.0, 34.0),
-        rect.max - egui::vec2(8.0, 38.0),
+        rect.min + egui::vec2(6.0, hh + 2.0),
+        rect.max - egui::vec2(6.0, fh + 2.0),
     );
-    let tint = theme::tier_accent(tier).gamma_multiply(0.12);
-    painter.rect_filled(art, 6.0, tint);
-    painter.text(
-        art.left_top() + egui::vec2(6.0, 4.0),
-        egui::Align2::LEFT_TOP,
-        ctx.loc.tier_label(tier),
-        theme::font_body(10.0),
-        egui::Color32::from_gray(130),
+    painter.rect_filled(art, 6.0, bg::card_mat());
+    painter.rect_stroke(
+        art,
+        6.0,
+        egui::Stroke::new(1.0_f32, theme::brass().gamma_multiply(0.45)),
+        egui::StrokeKind::Inside,
     );
-    draw::paint_gem_shape(
-        painter,
-        art.center(),
-        44.0,
-        card.bonus,
-        GemChipOpts::default(),
+    super::card_scenes::paint_scene(painter, art.shrink(2.0), tier, card.art, ctx.time);
+}
+
+fn paint_cost_footer(painter: &egui::Painter, rect: egui::Rect, ctx: &CardPaintCtx<'_>) {
+    let fh = footer_h(rect);
+    let footer = egui::Rect::from_min_max(
+        egui::pos2(rect.min.x, rect.max.y - fh),
+        rect.max,
     );
+    painter.rect_filled(footer, 0.0, egui::Color32::from_rgb(22, 20, 17));
+    painter.line_segment(
+        [footer.left_top(), footer.right_top()],
+        egui::Stroke::new(1.0_f32, theme::brass().gamma_multiply(0.5)),
+    );
+    let chip = (fh * 0.42).clamp(14.0, 20.0);
+    let mut x = footer.min.x + 6.0;
+    let cy = footer.center().y;
+    for g in Gem::BASIC {
+        let n = ctx.cost.get(g);
+        if n == 0 {
+            continue;
+        }
+        draw::paint_gem_shape(
+            painter,
+            egui::pos2(x + chip * 0.45, cy),
+            chip,
+            g,
+            GemChipOpts::default(),
+        );
+        painter.text(
+            egui::pos2(x + chip * 0.9, cy + chip * 0.35),
+            egui::Align2::CENTER_TOP,
+            format!("{n}"),
+            theme::font_body((chip * 0.55).clamp(9.0, 11.0)),
+            theme::accent_gold(),
+        );
+        x += chip + 8.0;
+    }
 }
 
 fn paint_header_zone(
@@ -130,17 +184,19 @@ fn paint_header_zone(
     card: &Card,
     ctx: &CardPaintCtx<'_>,
 ) {
-    let header = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + 32.0));
-    painter.rect_filled(header, 0.0, egui::Color32::BLACK.gamma_multiply(0.35));
+    let hh = header_h(rect);
+    let header = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + hh));
+    painter.rect_filled(header, 0.0, egui::Color32::from_rgb(24, 21, 18));
+    let pts_size = (hh * 0.75).clamp(16.0, 26.0);
     painter.text(
-        header.left_center() + egui::vec2(10.0, 0.0),
+        header.left_center() + egui::vec2(8.0, 0.0),
         egui::Align2::LEFT_CENTER,
         ctx.loc.points_gain(card.points),
-        theme::font_display(24.0),
+        theme::font_display(pts_size),
         theme::accent_gold(),
     );
-    let badge_c = header.right_center() + egui::vec2(-22.0, 0.0);
-    draw::paint_gem_shape(painter, badge_c, 26.0, card.bonus, GemChipOpts::default());
+    let badge_c = header.right_center() + egui::vec2(-18.0, 0.0);
+    draw::paint_gem_shape(painter, badge_c, hh * 0.85, card.bonus, GemChipOpts::default());
 }
 
 fn paint_brass_seal(painter: &egui::Painter, rect: egui::Rect) {

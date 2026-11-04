@@ -20,6 +20,12 @@ pub mod bg {
     pub fn surface_velvet() -> Color32 {
         hex("#161B26")
     }
+    pub fn card_face() -> Color32 {
+        hex("#2A241C")
+    }
+    pub fn card_mat() -> Color32 {
+        hex("#141820")
+    }
 }
 
 pub mod border {

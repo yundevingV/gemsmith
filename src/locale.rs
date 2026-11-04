@@ -303,6 +303,15 @@ impl Locale {
         }
     }
 
+    pub fn purchase_complete(&self) -> &'static str {
+        match self.lang {
+            Language::Ko => "구매 완료!",
+            Language::En => "Purchase complete!",
+            Language::Ja => "購入完了!",
+            Language::Zh => "购买完成！",
+        }
+    }
+
     pub fn hold(&self) -> &'static str {
         match self.lang {
             Language::Ko => "예약",
@@ -318,6 +327,15 @@ impl Locale {
             Language::En => "Take gems — pick 2 same or 3 different, then Take",
             Language::Ja => "宝石を取る — 同色2個または異色3個を選んで取得",
             Language::Zh => "取宝石 — 选2个同色或3个不同色，然后取",
+        }
+    }
+
+    pub fn one_action_per_turn(&self) -> &'static str {
+        match self.lang {
+            Language::Ko => "턴당 행동 1번 · 예약은 최대 3장까지 보유",
+            Language::En => "One action per turn · hold up to 3 reserved cards",
+            Language::Ja => "1ターン1行動 · 保留は最大3枚まで",
+            Language::Zh => "每回合1个行动 · 最多保留3张卡",
         }
     }
 

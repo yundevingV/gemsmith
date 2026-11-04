@@ -32,5 +32,5 @@ impl PlayLayout {
 }
 
 pub fn tier_row_needs_scroll(available: f32) -> bool {
-    available < 430.0
+    available < 360.0
 }

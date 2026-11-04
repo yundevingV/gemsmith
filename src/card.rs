@@ -9,6 +9,8 @@ pub struct Card {
     pub points: u8,
     pub bonus: Gem,
     pub cost: GemCounts,
+    /// Procedural art background variant (0..4) within the tier.
+    pub art: u8,
 }
 
 #[derive(Clone, Debug)]
@@ -63,6 +65,7 @@ fn build_tier(tier: u8, rng: &mut impl Rng) -> Vec<Card> {
                 points,
                 bonus,
                 cost: random_cost(tier, rng),
+                art: (i % 5) as u8,
             }
         })
         .collect()

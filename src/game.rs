@@ -169,13 +169,16 @@ impl Game {
         Ok(())
     }
 
+    /// Whether `gems` is a legal take for the current player.
+    pub fn can_take_gems(&self, gems: &[Gem]) -> bool {
+        let held = self.current_player().tokens.total();
+        take_gems_valid(&self.bank, held, gems).is_ok()
+    }
+
     fn take_gems(&mut self, name: &str, gems: Vec<Gem>) -> Result<(), GameError> {
-        validate_take(&self.bank, gems.as_slice())?;
         let idx = self.current;
-        let new_total = self.players[idx].tokens.total() + gems.len() as u8;
-        if new_total > MAX_TOKENS {
-            return Err(GameError::MaxTokens { would: new_total });
-        }
+        let held = self.players[idx].tokens.total();
+        take_gems_valid(&self.bank, held, gems.as_slice())?;
         for g in &gems {
             if self.bank.get(*g) == 0 {
                 return Err(GameError::BankEmpty);
@@ -340,6 +343,15 @@ impl Game {
         }
         Some(best)
     }
+}
+
+fn take_gems_valid(bank: &GemCounts, held: u8, gems: &[Gem]) -> Result<(), GameError> {
+    validate_take(bank, gems)?;
+    let new_total = held + gems.len() as u8;
+    if new_total > MAX_TOKENS {
+        return Err(GameError::MaxTokens { would: new_total });
+    }
+    Ok(())
 }
 
 fn validate_take(bank: &GemCounts, gems: &[Gem]) -> Result<(), GameError> {
