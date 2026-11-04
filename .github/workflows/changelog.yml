@@ -1,0 +1,47 @@
+name: Changelog
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Changelog line from PR
+        id: line
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          chmod +x scripts/pr-changelog-line.sh
+          ENTRY=$(scripts/pr-changelog-line.sh)
+          echo "entry<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$ENTRY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Append to CHANGELOG.md
+        env:
+          ENTRY: ${{ steps.line.outputs.entry }}
+        run: |
+          chmod +x scripts/changelog-append.sh
+          scripts/changelog-append.sh
+
+      - name: Commit
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: changelog PR #${{ github.event.pull_request.number }}"
+          file_pattern: CHANGELOG.md
+          branch: main
