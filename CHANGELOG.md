@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- Splendor형 보드게임 Gemsmith — CPU 대전 GUI·CLI 및 GitHub CI ([#1](https://github.com/yundevingV/gemsmith/pull/1))
+
 ## [0.1.0] - 2026-11-04
 
 ### Added
