@@ -1,10 +1,11 @@
-use super::draw::{self, GemChipOpts};
+use super::draw;
 use super::fonts;
 use super::layout;
+use super::purchase_fx::{self, PurchaseCelebration};
 use super::theme;
 use eframe::egui;
 use gemsmith::ai::{pick_action, Difficulty};
-use gemsmith::card::can_afford;
+use gemsmith::card::{can_afford, Card};
 use gemsmith::game::{Action, Game, TABLE_SIZE, WIN_POINTS};
 use gemsmith::gem::{Gem, GemCounts};
 use gemsmith::locale::{Language, Locale};
@@ -24,6 +25,8 @@ pub struct GemsmithApp {
     status: String,
     gem_pick: Vec<Gem>,
     focus_window_once: bool,
+    purchase_fx: Option<PurchaseCelebration>,
+    defer_cpu_after_fx: bool,
 }
 
 impl GemsmithApp {
@@ -38,6 +41,8 @@ impl GemsmithApp {
             status: String::new(),
             gem_pick: Vec::new(),
             focus_window_once: true,
+            purchase_fx: None,
+            defer_cpu_after_fx: false,
         }
     }
 
@@ -57,6 +62,8 @@ impl GemsmithApp {
             loc.player_cpu(),
         ));
         self.gem_pick.clear();
+        self.purchase_fx = None;
+        self.defer_cpu_after_fx = false;
         self.status = loc.your_turn().into();
         self.screen = Screen::Play;
     }
@@ -89,15 +96,40 @@ impl GemsmithApp {
         }
     }
 
-    fn apply_human(&mut self, action: Action) {
+    fn preview_bought_card(&self, action: &Action) -> Option<(Card, u8)> {
+        let game = self.game.as_ref()?;
+        match action {
+            Action::BuyTable { tier, slot } => game.table[(tier - 1) as usize][*slot]
+                .as_ref()
+                .map(|c| (c.clone(), *tier)),
+            Action::BuyReserved { idx } => game.players[0]
+                .reserved
+                .get(*idx)
+                .map(|c| (c.clone(), c.tier)),
+            _ => None,
+        }
+    }
+
+    fn apply_human(&mut self, action: Action, ctx: &egui::Context) {
         let loc = self.loc();
+        let bought = self.preview_bought_card(&action);
+        let now = ctx.input(|i| i.time);
         let Some(game) = self.game.as_mut() else {
             return;
         };
         match game.apply(action) {
             Ok(()) => {
                 self.gem_pick.clear();
-                self.run_cpu_turns();
+                if let Some((card, tier)) = bought {
+                    self.purchase_fx = Some(PurchaseCelebration {
+                        card,
+                        tier,
+                        start: now,
+                    });
+                    self.defer_cpu_after_fx = true;
+                } else {
+                    self.run_cpu_turns();
+                }
             }
             Err(e) => self.status = loc.format_error(&e),
         }
@@ -130,95 +162,141 @@ impl eframe::App for GemsmithApp {
             .show(ctx, |ui| {
                 let rect = ui.max_rect();
                 theme::velvet_overlay(ui.painter(), rect);
-                self.top_bar(ui, &loc);
+                if matches!(self.screen, Screen::Play) {
+                    theme::play_table_atmosphere(ui.painter(), rect);
+                }
+                self.top_bar(ui, &loc, matches!(self.screen, Screen::Menu));
                 match self.screen {
                     Screen::Menu => self.menu(ui, &loc),
-                    Screen::Play => self.play(ui, &loc),
+                    Screen::Play => self.play(ui, &loc, ctx),
                 }
             });
+
+        if let Some(fx) = &self.purchase_fx {
+            purchase_fx::paint(ctx, fx, &loc);
+            let now = ctx.input(|i| i.time);
+            if fx.finished(now) {
+                self.purchase_fx = None;
+                if self.defer_cpu_after_fx {
+                    self.defer_cpu_after_fx = false;
+                    self.run_cpu_turns();
+                }
+            }
+        }
     }
 }
 
 impl GemsmithApp {
-    fn top_bar(&self, ui: &mut egui::Ui, loc: &Locale) {
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(loc.app_title())
-                    .font(theme::font_display(26.0))
-                    .color(theme::accent_gold()),
-            );
-            ui.label(
-                egui::RichText::new(loc.win_goal_subtitle(WIN_POINTS))
-                    .small()
-                    .color(egui::Color32::GRAY),
-            );
-        });
+    fn top_bar(&self, ui: &mut egui::Ui, loc: &Locale, center: bool) {
+        let draw = |ui: &mut egui::Ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(loc.app_title())
+                        .font(theme::font_display(26.0))
+                        .color(theme::accent_gold()),
+                );
+                ui.label(
+                    egui::RichText::new(loc.win_goal_subtitle(WIN_POINTS))
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+            });
+        };
+        if center {
+            ui.vertical_centered(draw);
+        } else {
+            draw(ui);
+        }
         ui.add_space(4.0);
     }
 
     fn menu(&mut self, ui: &mut egui::Ui, loc: &Locale) {
+        const MENU_W: f32 = 380.0;
+        const MIN_H: f32 = 520.0;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.add_space(8.0);
-                draw::menu_hero(ui);
-                ui.add_space(16.0);
-                egui::Frame::new()
-                    .fill(theme::bg_panel())
-                    .stroke(egui::Stroke::new(
-                        1.5_f32,
-                        theme::accent_gold().gamma_multiply(0.5),
-                    ))
-                    .corner_radius(12.0)
-                    .inner_margin(24.0)
-                    .show(ui, |ui| {
-                        ui.set_min_width(340.0);
-                        ui.label(loc.language_label());
-                        ui.horizontal_wrapped(|ui| {
-                            for lang in Language::ALL {
-                                ui.selectable_value(&mut self.language, lang, lang.label());
-                            }
-                        });
-                        ui.add_space(12.0);
-                        ui.label(egui::RichText::new(loc.new_game()).size(18.0).strong());
-                        ui.add_space(8.0);
-                        ui.label(loc.cpu_difficulty());
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(
-                                &mut self.difficulty,
-                                Difficulty::Easy,
-                                loc.difficulty_easy(),
-                            );
-                            ui.selectable_value(
-                                &mut self.difficulty,
-                                Difficulty::Medium,
-                                loc.difficulty_medium(),
-                            );
-                            ui.selectable_value(
-                                &mut self.difficulty,
-                                Difficulty::Hard,
-                                loc.difficulty_hard(),
-                            );
-                        });
-                        ui.add_space(16.0);
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(loc.play()).size(16.0).strong(),
-                                )
-                                .fill(theme::bg_felt())
-                                .stroke(egui::Stroke::new(1.5_f32, theme::accent_gold())),
-                            )
-                            .clicked()
-                        {
-                            self.new_game();
-                        }
-                    });
-                ui.add_space(24.0);
+                let w = ui.available_width();
+                let h = ui.available_height().max(MIN_H);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(w, h),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        ui.add_space(24.0);
+                        draw::menu_hero(ui);
+                        ui.add_space(20.0);
+                        egui::Frame::new()
+                            .fill(theme::bg_panel())
+                            .stroke(egui::Stroke::new(
+                                1.5_f32,
+                                theme::accent_gold().gamma_multiply(0.5),
+                            ))
+                            .corner_radius(12.0)
+                            .inner_margin(24.0)
+                            .show(ui, |ui| {
+                                ui.set_width(MENU_W);
+                                ui.label(loc.language_label());
+                                ui.horizontal_wrapped(|ui| {
+                                    for lang in Language::ALL {
+                                        ui.selectable_value(
+                                            &mut self.language,
+                                            lang,
+                                            lang.label(),
+                                        );
+                                    }
+                                });
+                                ui.add_space(12.0);
+                                ui.label(
+                                    egui::RichText::new(loc.new_game()).size(18.0).strong(),
+                                );
+                                ui.add_space(8.0);
+                                ui.label(loc.cpu_difficulty());
+                                ui.horizontal(|ui| {
+                                    ui.selectable_value(
+                                        &mut self.difficulty,
+                                        Difficulty::Easy,
+                                        loc.difficulty_easy(),
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.difficulty,
+                                        Difficulty::Medium,
+                                        loc.difficulty_medium(),
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.difficulty,
+                                        Difficulty::Hard,
+                                        loc.difficulty_hard(),
+                                    );
+                                });
+                                ui.add_space(16.0);
+                                ui.vertical_centered(|ui| {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new(loc.play())
+                                                    .size(16.0)
+                                                    .strong(),
+                                            )
+                                            .fill(theme::bg_felt())
+                                            .stroke(egui::Stroke::new(
+                                                1.5_f32,
+                                                theme::accent_gold(),
+                                            ))
+                                            .min_size(egui::vec2(MENU_W * 0.55, 36.0)),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.new_game();
+                                    }
+                                });
+                            });
+                        ui.add_space(32.0);
+                    },
+                );
             });
     }
 
-    fn play(&mut self, ui: &mut egui::Ui, loc: &Locale) {
+    fn play(&mut self, ui: &mut egui::Ui, loc: &Locale, ctx: &egui::Context) {
         let Some(game) = self.game.as_ref() else {
             self.screen = Screen::Menu;
             return;
@@ -245,9 +323,16 @@ impl GemsmithApp {
                 ui.label(turn.color(egui::Color32::GRAY));
             }
         });
+        let human_turn = game.current == 0 && game.current_player().is_human;
+        if human_turn {
+            ui.label(
+                egui::RichText::new(loc.one_action_per_turn())
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+        }
         ui.add_space(8.0);
 
-        let human_turn = game.current == 0 && game.current_player().is_human;
         let mut pending: Option<Action> = None;
         let layout = layout::PlayLayout::measure(ui);
 
@@ -256,42 +341,20 @@ impl GemsmithApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_max_width(layout.content_w);
-                Self::play_board(ui, loc, game, layout, human_turn, &mut pending);
+                Self::play_board(
+                    ui,
+                    loc,
+                    game,
+                    layout,
+                    human_turn,
+                    &mut pending,
+                    &mut self.gem_pick,
+                );
             });
 
         if human_turn {
             ui.add_space(8.0);
             theme::sidebar_panel(ui, |ui| {
-                ui.strong(loc.take_gems_help());
-                ui.horizontal_wrapped(|ui| {
-                    for g in Gem::BASIC {
-                        let on = self.gem_pick.contains(&g);
-                        let r = draw::draw_gem_chip(
-                            ui,
-                            g,
-                            48.0,
-                            None,
-                            egui::Sense::click(),
-                            GemChipOpts {
-                                selected: on,
-                                ..Default::default()
-                            },
-                        );
-                        if r.clicked() {
-                            if on {
-                                self.gem_pick.retain(|x| *x != g);
-                            } else if self.gem_pick.len() < 3 {
-                                self.gem_pick.push(g);
-                            }
-                        }
-                    }
-                    if ui.button(loc.take_selected()).clicked() {
-                        pending = Some(Action::TakeGems(self.gem_pick.clone()));
-                    }
-                    if ui.button(loc.clear()).clicked() {
-                        self.gem_pick.clear();
-                    }
-                });
                 ui.horizontal_wrapped(|ui| {
                     ui.label(loc.reserve_from_deck());
                     for tier in 1..=3u8 {
@@ -310,7 +373,9 @@ impl GemsmithApp {
         }
 
         if let Some(a) = pending {
-            self.apply_human(a);
+            if self.purchase_fx.is_none() {
+                self.apply_human(a, ctx);
+            }
         }
     }
 
@@ -321,16 +386,33 @@ impl GemsmithApp {
         layout: layout::PlayLayout,
         human_turn: bool,
         pending: &mut Option<Action>,
+        gem_pick: &mut Vec<Gem>,
     ) {
         if layout.narrow {
-            Self::play_main_panel(ui, loc, game, layout.main_w, human_turn, pending);
+            Self::play_main_panel(
+                ui,
+                loc,
+                game,
+                layout.main_w,
+                human_turn,
+                pending,
+                gem_pick,
+            );
             ui.add_space(10.0);
             Self::play_side_panel(ui, loc, game, human_turn, pending);
         } else {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_max_width(layout.main_w);
-                    Self::play_main_panel(ui, loc, game, layout.main_w, human_turn, pending);
+                    Self::play_main_panel(
+                        ui,
+                        loc,
+                        game,
+                        layout.main_w,
+                        human_turn,
+                        pending,
+                        gem_pick,
+                    );
                 });
                 ui.add_space(12.0);
                 ui.vertical(|ui| {
@@ -349,9 +431,34 @@ impl GemsmithApp {
         main_w: f32,
         human_turn: bool,
         pending: &mut Option<Action>,
+        gem_pick: &mut Vec<Gem>,
     ) {
         theme::board_panel(ui, loc.gem_bank(), |ui| {
-            draw::bank_row(ui, &game.bank);
+            if human_turn {
+                ui.label(loc.take_gems_help());
+                ui.add_space(4.0);
+            }
+            if let Some(g) = draw::bank_row(ui, &game.bank, gem_pick, human_turn) {
+                super::gem_pick::toggle_pick(gem_pick, g, &game.bank);
+            }
+            if human_turn {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let can = game.can_take_gems(gem_pick.as_slice());
+                    if ui
+                        .add_enabled(
+                            can,
+                            egui::Button::new(loc.take_selected()).fill(theme::bg_felt()),
+                        )
+                        .clicked()
+                    {
+                        *pending = Some(Action::TakeGems(gem_pick.clone()));
+                    }
+                    if ui.button(loc.clear()).clicked() {
+                        gem_pick.clear();
+                    }
+                });
+            }
         });
         ui.add_space(10.0);
         theme::board_panel(ui, loc.development_cards(), |ui| {
@@ -408,7 +515,12 @@ impl GemsmithApp {
                     ui.label(loc.reserved());
                     for (ri, c) in pl.reserved.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            draw::mini_card(ui, c, loc);
+                            let wallet = if human_turn && pi == 0 {
+                                Some((&pl.tokens as &GemCounts, &pl.bonuses as &GemCounts))
+                            } else {
+                                None
+                            };
+                            draw::mini_card(ui, c, loc, wallet);
                             if human_turn && pi == 0 && ui.small_button(loc.buy()).clicked() {
                                 *pending = Some(Action::BuyReserved { idx: ri });
                             }
@@ -430,13 +542,9 @@ impl GemsmithApp {
         main_w: f32,
     ) {
         ui.horizontal(|ui| {
-            ui.set_min_width(34.0);
-            ui.label(
-                egui::RichText::new(loc.tier_short(tier))
-                    .small()
-                    .color(theme::tier_accent(tier)),
-            );
-            let card_w = (main_w - 48.0).max(200.0);
+            ui.set_min_width(42.0);
+            theme::tier_badge(ui, &loc.tier_short(tier), tier);
+            let card_w = (main_w - 56.0).max(200.0);
             if layout::tier_row_needs_scroll(card_w) {
                 egui::ScrollArea::horizontal()
                     .id_salt(("tier_scroll", tier))
@@ -463,7 +571,7 @@ impl GemsmithApp {
     ) {
         let pl = &game.players[0];
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing.x = 10.0;
             for slot in 0..TABLE_SIZE {
                 if let Some(c) = &game.table[(tier - 1) as usize][slot] {
                     let can_buy =

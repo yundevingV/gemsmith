@@ -1,8 +1,11 @@
 mod app;
+mod card_scenes;
 mod cards;
 mod draw;
 mod fonts;
+mod gem_pick;
 mod layout;
+mod purchase_fx;
 mod theme;
 mod tokens;
 
