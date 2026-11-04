@@ -1,0 +1,18 @@
+[package]
+name = "gemsmith"
+version = "0.1.0"
+edition = "2021"
+description = "Splendor-like gem engine-building game vs AI (GUI + CLI)"
+default-run = "gemsmith"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "gemsmith-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+rand = "0.8"
+thiserror = "1"
+eframe = { version = "0.31", default-features = true }
