@@ -87,7 +87,6 @@ pub fn paint(ctx: &egui::Context, fx: &PurchaseCelebration, loc: &Locale) {
                 reserved_seal: false,
                 loc,
                 cost: &fx.card.cost,
-                wallet: None,
             };
             cards::paint_development_card(&painter, card_rect, fx.tier, &fx.card, &ctx_paint);
 
