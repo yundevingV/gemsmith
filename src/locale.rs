@@ -186,6 +186,33 @@ impl Locale {
         }
     }
 
+    pub fn game_status(&self) -> &'static str {
+        match self.lang {
+            Language::Ko => "게임 현황",
+            Language::En => "Game status",
+            Language::Ja => "ゲーム状況",
+            Language::Zh => "游戏状态",
+        }
+    }
+
+    pub fn action_log(&self) -> &'static str {
+        match self.lang {
+            Language::Ko => "행동 기록",
+            Language::En => "Action log",
+            Language::Ja => "行動ログ",
+            Language::Zh => "行动记录",
+        }
+    }
+
+    pub fn action_log_empty(&self) -> &'static str {
+        match self.lang {
+            Language::Ko => "플레이가 시작되면 여기에 기록됩니다.",
+            Language::En => "Actions will appear here as you play.",
+            Language::Ja => "プレイ中の行動がここに表示されます。",
+            Language::Zh => "进行游戏时，行动会显示在这里。",
+        }
+    }
+
     pub fn tier_short(&self, tier: u8) -> String {
         match self.lang {
             Language::Ko => format!("{tier}단"),
@@ -323,10 +350,10 @@ impl Locale {
 
     pub fn take_gems_help(&self) -> &'static str {
         match self.lang {
-            Language::Ko => "보석 가져오기 — 같은 색 2개 또는 다른 색 3개 선택 후 가져오기",
-            Language::En => "Take gems — pick 2 same or 3 different, then Take",
-            Language::Ja => "宝石を取る — 同色2個または異色3個を選んで取得",
-            Language::Zh => "取宝石 — 选2个同色或3个不同色，然后取",
+            Language::Ko => "보석 — R/S/E/D/X 선택(같은 키 2번=2개) · Enter 가져오기 · Esc 취소 · 최대 10개",
+            Language::En => "Gems — R/S/E/D/X (same key twice = 2) · Enter take · Esc clear · max 10",
+            Language::Ja => "宝石 — R/S/E/D/X(同キー2回=2個) · Enter取得 · Esc解除",
+            Language::Zh => "宝石 — R/S/E/D/X(同键按2次=2个) · Enter取 · Esc清除",
         }
     }
 
@@ -464,10 +491,10 @@ impl Locale {
                 "两个必须同色",
             ),
             GameError::NeedFourInBank => self.msg(
-                "같은 색 2개는 은행에 4개 이상 필요",
-                "need 4+ in bank for two",
-                "同色2個はバンクに4個以上必要",
-                "取2个同色需要银行至少4个",
+                "같은 색 2개는 은행에 2개 이상 필요",
+                "need 2+ in bank for two same",
+                "同色2個はバンクに2個以上必要",
+                "取2个同色需要银行至少2个",
             ),
             GameError::NoGoldOnTake => self.msg(
                 "가져올 때 골드 불가",
@@ -496,56 +523,54 @@ impl Locale {
     }
 
     pub fn format_log(&self, entry: &LogEntry) -> String {
+        format!("{} — {}", entry.actor(), self.format_log_action(entry))
+    }
+
+    pub fn format_log_action(&self, entry: &LogEntry) -> String {
         match entry {
-            LogEntry::Took { name, gems } => match self.lang {
-                Language::Ko => format!("{name} — 보석 {gems} 획득"),
-                Language::En => format!("{name} took {gems}"),
-                Language::Ja => format!("{name} が {gems} を取得"),
-                Language::Zh => format!("{name} 取得了 {gems}"),
+            LogEntry::Took { gems, .. } => match self.lang {
+                Language::Ko => format!("보석 {gems} 획득"),
+                Language::En => format!("took {gems}"),
+                Language::Ja => format!("{gems} を取得"),
+                Language::Zh => format!("取得了 {gems}"),
             },
-            LogEntry::ReservedTable { name, tier } => match self.lang {
-                Language::Ko => format!("{name} — {tier}티어 카드 예약"),
-                Language::En => format!("{name} reserved a tier-{tier} card"),
-                Language::Ja => format!("{name} がティア{tier}を予約"),
-                Language::Zh => format!("{name} 保留了{tier}级卡"),
+            LogEntry::ReservedTable { tier, .. } => match self.lang {
+                Language::Ko => format!("{tier}티어 카드 예약"),
+                Language::En => format!("reserved a tier-{tier} card"),
+                Language::Ja => format!("ティア{tier}を予約"),
+                Language::Zh => format!("保留了{tier}级卡"),
             },
-            LogEntry::ReservedDeck { name, tier } => match self.lang {
-                Language::Ko => format!("{name} — {tier}티어 덱에서 예약"),
-                Language::En => format!("{name} reserved from tier-{tier} deck"),
-                Language::Ja => format!("{name} がティア{tier}山札から予約"),
-                Language::Zh => format!("{name} 从{tier}级牌堆保留"),
+            LogEntry::ReservedDeck { tier, .. } => match self.lang {
+                Language::Ko => format!("{tier}티어 덱에서 예약"),
+                Language::En => format!("reserved from tier-{tier} deck"),
+                Language::Ja => format!("ティア{tier}山札から予約"),
+                Language::Zh => format!("从{tier}级牌堆保留"),
             },
             LogEntry::Bought {
-                name,
                 tier,
                 points,
                 bonus,
+                ..
             } => {
                 let gem = self.gem_name(*bonus);
                 match self.lang {
-                    Language::Ko => {
-                        format!("{name} — {tier}티어 구매 +{points}점 ({gem})")
-                    }
-                    Language::En => format!(
-                        "{name} bought tier-{tier} +{points}pt bonus {bonus}"
-                    ),
-                    Language::Ja => {
-                        format!("{name} — T{tier}購入 +{points}点 ({gem})")
-                    }
-                    Language::Zh => format!("{name} 购买{tier}级 +{points}分 ({gem})"),
+                    Language::Ko => format!("{tier}티어 구매 +{points}점 ({gem})"),
+                    Language::En => format!("bought tier-{tier} +{points}pt bonus {bonus}"),
+                    Language::Ja => format!("T{tier}購入 +{points}点 ({gem})"),
+                    Language::Zh => format!("购买{tier}级 +{points}分 ({gem})"),
                 }
             }
-            LogEntry::FinalRound { name } => match self.lang {
-                Language::Ko => format!("{name} — {WIN_PTS}점 돌파, 마지막 라운드"),
-                Language::En => format!("{name} hit {WIN_PTS} points — final round"),
-                Language::Ja => format!("{name} — {WIN_PTS}点到達、最終ラウンド"),
-                Language::Zh => format!("{name} 达到{WIN_PTS}分 — 最后一轮"),
+            LogEntry::FinalRound { .. } => match self.lang {
+                Language::Ko => format!("{WIN_PTS}점 돌파, 마지막 라운드"),
+                Language::En => format!("hit {WIN_PTS} points — final round"),
+                Language::Ja => format!("{WIN_PTS}点到達、最終ラウンド"),
+                Language::Zh => format!("达到{WIN_PTS}分 — 最后一轮"),
             },
-            LogEntry::Patron { name, points } => match self.lang {
-                Language::Ko => format!("{name} — 후원자 +{points}점"),
-                Language::En => format!("{name} gained patron +{points}pt"),
-                Language::Ja => format!("{name} — パトロン +{points}点"),
-                Language::Zh => format!("{name} 获得赞助人 +{points}分"),
+            LogEntry::Patron { points, .. } => match self.lang {
+                Language::Ko => format!("후원자 +{points}점"),
+                Language::En => format!("gained patron +{points}pt"),
+                Language::Ja => format!("パトロン +{points}点"),
+                Language::Zh => format!("获得赞助人 +{points}分"),
             },
         }
     }

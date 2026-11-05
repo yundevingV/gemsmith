@@ -67,6 +67,19 @@ pub enum LogEntry {
     Patron { name: String, points: u8 },
 }
 
+impl LogEntry {
+    pub fn actor(&self) -> &str {
+        match self {
+            Self::Took { name, .. }
+            | Self::ReservedTable { name, .. }
+            | Self::ReservedDeck { name, .. }
+            | Self::Bought { name, .. }
+            | Self::FinalRound { name }
+            | Self::Patron { name, .. } => name,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Game {
     pub seed: u64,
@@ -173,6 +186,12 @@ impl Game {
     pub fn can_take_gems(&self, gems: &[Gem]) -> bool {
         let held = self.current_player().tokens.total();
         take_gems_valid(&self.bank, held, gems).is_ok()
+    }
+
+    /// In-progress gem selection (1–3 chips) before confirming take.
+    pub fn gem_pick_valid(&self, gems: &[Gem]) -> bool {
+        let held = self.current_player().tokens.total();
+        gem_pick_progress_valid(&self.bank, held, gems)
     }
 
     fn take_gems(&mut self, name: &str, gems: Vec<Gem>) -> Result<(), GameError> {
@@ -354,18 +373,50 @@ fn take_gems_valid(bank: &GemCounts, held: u8, gems: &[Gem]) -> Result<(), GameE
     Ok(())
 }
 
+/// Selection on the bank UI (1–3 gems before confirming take).
+pub fn gem_pick_progress_valid(bank: &GemCounts, held: u8, gems: &[Gem]) -> bool {
+    if gems.is_empty() {
+        return true;
+    }
+    if held >= MAX_TOKENS {
+        return false;
+    }
+    if held + gems.len() as u8 > MAX_TOKENS {
+        return false;
+    }
+    match gems.len() {
+        1 => validate_take(bank, gems).is_ok(),
+        2 => {
+            if gems[0] == gems[1] {
+                validate_take(bank, gems).is_ok()
+            } else {
+                held + 3 <= MAX_TOKENS
+            }
+        }
+        3 => validate_take(bank, gems).is_ok(),
+        _ => false,
+    }
+}
+
 fn validate_take(bank: &GemCounts, gems: &[Gem]) -> Result<(), GameError> {
     if gems.is_empty() {
         return Err(GameError::PickAtLeastOne);
     }
     if gems.len() == 1 {
-        return Err(GameError::TakeTwoOrThree);
+        let g = gems[0];
+        if !g.is_basic() {
+            return Err(GameError::NoGoldOnTake);
+        }
+        if bank.get(g) == 0 {
+            return Err(GameError::BankEmpty);
+        }
+        return Ok(());
     }
     if gems.len() == 2 {
         if gems[0] != gems[1] {
             return Err(GameError::TwoSameColor);
         }
-        if bank.get(gems[0]) < 4 {
+        if bank.get(gems[0]) < 2 {
             return Err(GameError::NeedFourInBank);
         }
         return Ok(());
@@ -392,7 +443,12 @@ fn take_gem_actions(bank: &GemCounts, held: u8) -> Vec<Action> {
         return out;
     }
     for &g in &Gem::BASIC {
-        if bank.get(g) >= 4 && held + 2 <= MAX_TOKENS {
+        if bank.get(g) > 0 && held + 1 <= MAX_TOKENS {
+            out.push(Action::TakeGems(vec![g]));
+        }
+    }
+    for &g in &Gem::BASIC {
+        if bank.get(g) >= 2 && held + 2 <= MAX_TOKENS {
             out.push(Action::TakeGems(vec![g, g]));
         }
     }
