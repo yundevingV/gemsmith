@@ -18,12 +18,15 @@ jobs:
         include:
           - os: ubuntu-latest
             name: linux-x86_64
+            pack: tar
             archive: gemsmith-linux-x86_64.tar.gz
           - os: macos-latest
             name: macos-aarch64
-            archive: gemsmith-macos-aarch64.tar.gz
+            pack: dmg
+            archive: gemsmith-macos-aarch64.dmg
           - os: windows-latest
             name: windows-x86_64
+            pack: zip
             archive: gemsmith-windows-x86_64.zip
 
     steps:
@@ -36,15 +39,21 @@ jobs:
       - name: cargo build --release
         run: cargo build --release --bin gemsmith --bin gemsmith-cli
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Package (macOS DMG)
+        if: matrix.pack == 'dmg'
+        run: |
+          chmod +x scripts/macos-dmg.sh
+          scripts/macos-dmg.sh "${{ matrix.archive }}"
+
+      - name: Package (Unix tar)
+        if: matrix.pack == 'tar'
         run: |
           mkdir -p dist
           cp target/release/gemsmith target/release/gemsmith-cli dist/
           tar czf "${{ matrix.archive }}" -C dist .
 
       - name: Package (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.pack == 'zip'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null

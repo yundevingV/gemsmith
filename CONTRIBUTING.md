@@ -37,7 +37,7 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-`v*` 태그 push 시 **Release** 워크플로가 Linux / macOS(Apple Silicon) / Windows 바이너리(`gemsmith`, `gemsmith-cli`)를 빌드해 GitHub Releases에 올린다.
+`v*` 태그 push 시 **Release** 워크플로가 Linux(tar.gz) / macOS(**`.dmg`**, Gemsmith.app + CLI) / Windows(zip)을 GitHub Releases에 올린다.
 
 ## 커밋하지 말 것
 
