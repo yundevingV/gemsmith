@@ -181,18 +181,35 @@ pub fn cost_row(ui: &mut egui::Ui, cost: &GemCounts, wallet: Option<(&GemCounts,
     });
 }
 
-pub fn bank_row(ui: &mut egui::Ui, bank: &GemCounts, pick: &[Gem], interactive: bool) -> Option<Gem> {
+pub fn bank_row(
+    ui: &mut egui::Ui,
+    bank: &GemCounts,
+    pick: &[Gem],
+    interactive: bool,
+    held_tokens: u8,
+    gem_size: f32,
+    row_h: f32,
+) -> Option<Gem> {
     const COLS: f32 = 6.0;
-    const ROW_H: f32 = 72.0;
-    const GEM: f32 = 42.0;
     let row_w = ui.available_width();
-    let cell_w = (row_w / COLS).max(52.0);
+    let cell_w = (row_w / COLS).max(44.0);
     let mut clicked = None;
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         for g in Gem::BASIC {
-            if bank_cell(ui, g, bank.get(g), cell_w, ROW_H, GEM, pick, interactive) {
+            if bank_cell(
+                ui,
+                g,
+                bank.get(g),
+                cell_w,
+                row_h,
+                gem_size,
+                pick,
+                bank,
+                interactive,
+                held_tokens,
+            ) {
                 clicked = Some(g);
             }
         }
@@ -201,10 +218,12 @@ pub fn bank_row(ui: &mut egui::Ui, bank: &GemCounts, pick: &[Gem], interactive: 
             Gem::Gold,
             bank.gold,
             cell_w,
-            ROW_H,
-            GEM,
+            row_h,
+            gem_size,
             pick,
+            bank,
             false,
+            held_tokens,
         );
     });
     clicked
@@ -218,7 +237,9 @@ fn bank_cell(
     h: f32,
     gem: f32,
     pick: &[Gem],
+    bank: &GemCounts,
     interactive: bool,
+    held_tokens: u8,
 ) -> bool {
     let mut hit = false;
     ui.allocate_ui_with_layout(
@@ -227,12 +248,17 @@ fn bank_cell(
         |ui| {
             ui.add_space(2.0);
             let n = super::gem_pick::pick_count(pick, g);
-            let sense = if interactive && g.is_basic() && count > 0 {
+            let can_click = interactive
+                && g.is_basic()
+                && count > 0
+                && super::gem_pick::can_toggle_pick(pick, g, bank, held_tokens);
+            let sense = if can_click {
                 egui::Sense::click()
             } else {
                 egui::Sense::hover()
             };
             let count_lbl = (n > 0).then(|| format!("×{n}"));
+            let disabled = count == 0 || (interactive && g.is_basic() && !can_click && n == 0);
             let r = draw_gem_chip(
                 ui,
                 g,
@@ -241,11 +267,11 @@ fn bank_cell(
                 sense,
                 GemChipOpts {
                     selected: n > 0,
-                    disabled: count == 0,
+                    disabled,
                     ..Default::default()
                 },
             );
-            if interactive && r.clicked() {
+            if can_click && r.clicked() {
                 hit = true;
             }
             ui.label(
@@ -268,7 +294,7 @@ fn paint_card_face(
     phase: f32,
     affordable: f32,
     reserved_seal: bool,
-    wallet: Option<(&GemCounts, &GemCounts)>,
+    cost: &GemCounts,
 ) {
     let time = ui.input(|i| i.time) as f32;
     let ctx = CardPaintCtx {
@@ -278,8 +304,7 @@ fn paint_card_face(
         affordable,
         reserved_seal,
         loc,
-        cost: &c.cost,
-        wallet,
+        cost,
     };
     cards::paint_development_card(ui.painter(), rect, tier, c, &ctx);
 }
@@ -291,16 +316,15 @@ pub fn market_card(
     slot: usize,
     human: bool,
     can_buy: bool,
-    wallet: Option<(&GemCounts, &GemCounts)>,
     pending: &mut Option<Action>,
     loc: &Locale,
+    card_w: f32,
+    card_h: f32,
 ) {
-    let w = cards::MARKET_CARD_W;
     ui.vertical(|ui| {
-        ui.set_width(w);
-        let art_h = cards::MARKET_CARD_H;
+        ui.set_width(card_w);
         let id = ui.id().with(("market", tier, slot));
-        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, art_h), egui::Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(card_w, card_h), egui::Sense::click());
         let hover = cards::card_hover_anim(ui, id, resp.hovered());
         let afford_anim = if human {
             ui.ctx()
@@ -319,16 +343,18 @@ pub fn market_card(
                 tier as f32 + slot as f32 * 0.3,
                 afford_anim,
                 false,
-                wallet,
+                &c.cost,
             );
         }
         if human {
             let _ = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if theme::gold_button(ui, loc.buy(), true).clicked() {
-                    *pending = Some(Action::BuyTable { tier, slot });
-                }
+                ui.add_enabled_ui(can_buy, |ui| {
+                    if theme::gold_button(ui, loc.buy(), true).clicked() {
+                        *pending = Some(Action::BuyTable { tier, slot });
+                    }
+                });
                 if theme::gold_button(ui, loc.hold(), true).clicked() {
                     *pending = Some(Action::ReserveTable { tier, slot });
                 }
@@ -337,35 +363,48 @@ pub fn market_card(
     });
 }
 
-pub fn patron_tile(ui: &mut egui::Ui, idx: usize, p: &Patron, loc: &Locale) {
-    ui.horizontal(|ui| {
-        let side = 88.0;
+pub fn patron_tile(ui: &mut egui::Ui, idx: usize, p: &Patron, loc: &Locale, compact: bool) {
+    let paint_tile = |ui: &mut egui::Ui, side: f32| {
         let (tile_rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
-        if ui.is_rect_visible(tile_rect) {
-            let pter = ui.painter();
-            pter.rect_filled(tile_rect, 4.0, tokens::bg::panel_emerald());
-            pter.rect_stroke(
-                tile_rect,
-                4.0,
-                egui::Stroke::new(2.0_f32, theme::brass()),
-                egui::StrokeKind::Inside,
-            );
-            cards::paint_brass_corners(pter, tile_rect);
-            pter.text(
-                tile_rect.left_top() + egui::vec2(8.0, 6.0),
-                egui::Align2::LEFT_TOP,
-                loc.points_fmt(3),
-                theme::font_display(22.0),
-                theme::accent_gold(),
-            );
-            pter.text(
-                tile_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                format!("{}", idx + 1),
-                theme::font_display(18.0),
-                theme::brass(),
-            );
+        if !ui.is_rect_visible(tile_rect) {
+            return;
         }
+        let pter = ui.painter();
+        pter.rect_filled(tile_rect, 4.0, tokens::bg::panel_emerald());
+        pter.rect_stroke(
+            tile_rect,
+            4.0,
+            egui::Stroke::new(2.0_f32, theme::brass()),
+            egui::StrokeKind::Inside,
+        );
+        cards::paint_brass_corners(pter, tile_rect);
+        pter.text(
+            tile_rect.left_top() + egui::vec2(6.0, 4.0),
+            egui::Align2::LEFT_TOP,
+            loc.points_fmt(3),
+            theme::font_display(if compact { 16.0 } else { 22.0 }),
+            theme::accent_gold(),
+        );
+        pter.text(
+            tile_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{}", idx + 1),
+            theme::font_display(if compact { 14.0 } else { 18.0 }),
+            theme::brass(),
+        );
+    };
+
+    if compact {
+        ui.vertical(|ui| {
+            ui.set_max_width(72.0);
+            paint_tile(ui, 56.0);
+            cost_row(ui, &p.requires, None);
+        });
+        return;
+    }
+
+    ui.horizontal(|ui| {
+        paint_tile(ui, 88.0);
         ui.vertical(|ui| {
             ui.label(egui::RichText::new(loc.patron_title()).small());
             ui.label(loc.requires());
@@ -426,10 +465,11 @@ pub fn mini_card(
     ui: &mut egui::Ui,
     c: &Card,
     loc: &Locale,
-    wallet: Option<(&GemCounts, &GemCounts)>,
+    card_w: f32,
+    card_h: f32,
 ) {
     let (rect, resp) = ui.allocate_exact_size(
-        egui::vec2(cards::MINI_CARD_W, cards::MINI_CARD_H),
+        egui::vec2(card_w, card_h),
         egui::Sense::hover(),
     );
     let hover = cards::card_hover_anim(ui, resp.id, resp.hovered());
@@ -444,7 +484,7 @@ pub fn mini_card(
             c.points as f32,
             0.0,
             true,
-            wallet,
+            &c.cost,
         );
     }
 }
