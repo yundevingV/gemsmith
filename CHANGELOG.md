@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- GitHub Releases 자동 배포 (태그 v*) ([#4](https://github.com/yundevingV/gemsmith/pull/4))
+
 ## [0.1.1] - 2026-11-05
 
 - Splendor형 보드게임 Gemsmith — CPU 대전 GUI·CLI 및 GitHub CI ([#1](https://github.com/yundevingV/gemsmith/pull/1))
