@@ -20,7 +20,7 @@ pub fn run() -> eframe::Result<()> {
         renderer: eframe::Renderer::Glow,
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Gemsmith")
-            .with_inner_size([1180.0, 760.0])
+            .with_inner_size([1240.0, 840.0])
             .with_min_inner_size([640.0, 520.0])
             .with_active(true)
             .with_visible(true),
