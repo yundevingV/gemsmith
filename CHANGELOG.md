@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 - GitHub Releases 자동 배포 (태그 v*) ([#4](https://github.com/yundevingV/gemsmith/pull/4))
+- macOS GitHub Release DMG 추가 ([#5](https://github.com/yundevingV/gemsmith/pull/5))
 
 ## [0.1.1] - 2026-11-05
 
